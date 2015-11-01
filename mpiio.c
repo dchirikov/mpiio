@@ -337,7 +337,7 @@ void print_help(int rank) {
         printf("\t-f <N>\tFile name\n");
         printf("\t-c <N>\tChunk size\n");
         printf("\t-s <N>\tNumber of bytes to write\n");
-        printf("\t-h <N>\tThis help\n");
+        printf("\t-h    \tThis help\n");
         printf("\nN accepts multipliers [k,K,m,M,g,G,t,T,p,P,e,E], 1k=1000, 1K=1024\n\n");
     }
 }
