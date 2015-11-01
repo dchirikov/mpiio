@@ -105,22 +105,7 @@ int main(int argc,char *argv[]) {
     printf("Rank %05d | Chunk size %lli\n", rank, client_data.csize);
     printf("Rank %05d | Requested bytes to write: %lli\n", rank, maxbytes);
     printf("Rank %05d | Bytes to write: %lli\n", rank, client_data.csize*server_data.num);
-//    MPI_Finalize();
-//    exit(0);
-    /*
-    if (rank == 0) {
-        if ( argc < 4 ) {
-            readlink("/proc/self/exe", pathtobin, sizeof(pathtobin));
-            printf("Usage: %s block_size chunk_size N\n", pathtobin);
-            MPI_Abort(MPI_COMM_WORLD, 0);
-        }
-    }
-    */
-/*    client_data.bsize = atoi(argv[1]);
 
-    server_data.csize = atoi(argv[2]);
-    client_data.csize = server_data.csize;
-    server_data.num = atoi(argv[3]);*/
     client_data.rank = rank; 
     MPI_Comm_size(MPI_COMM_WORLD,&numranks);
     server_data.numranks = numranks;
@@ -204,7 +189,6 @@ int client_thread(void *ptr) {
         // Allocate a data buffer for the aiocb request
         printf("Rank %05d | client_data.maxreqs %d\n", client_data.rank, client_data.maxreqs);
         my_aiocb[i].aio_buf = calloc(client_data.bsize+1, 1);
-        // my_aiocb[i].aio_buf = malloc(client_data.bsize+1);
         if (!my_aiocb[i].aio_buf) {
             printf("Rank %05d | Error calloc()[%d]: %s\n", client_data.rank, strerror(errno), i);
             exit(errno);
@@ -213,8 +197,6 @@ int client_thread(void *ptr) {
         // Initialize the necessary fields in the aiocb
         my_aiocb[i].aio_fildes = fd;
         my_aiocb[i].aio_nbytes = client_data.bsize;
-        //printf("Rank %05d | ==================================================test %d\n", client_data.rank, i);
-        //printf("Rank %05d | client_data.bsize  %d: %s\n", client_data.rank, client_data.bsize);
         infly[i] = 0;
     }
     while(1) {
