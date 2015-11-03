@@ -110,6 +110,7 @@ int main(int argc,char *argv[]) {
         exit(0);
     }
     server_data.num = (off_t)maxbytes/client_data.csize;
+    server_data.csize = client_data.csize;
     if (client_data.csize > client_data.csize*server_data.num) {
         if (rank == 0) {
             printf("Requested chunk size larger that requested bytes to write. Exiting.\n");
@@ -147,25 +148,32 @@ int main(int argc,char *argv[]) {
     exit(0);
 }
 void *server_thread(void *ptr) {
+    
     int data_in, data_out;
     struct server_data_t server_data = *(struct server_data_t *)ptr;
-    int num_of_chunks = 1;
+    int chunks_per_time = 1;
     int rank;
+    struct timeval tv_start, tv_finish;
+    unsigned long time_sec;
+    off_t num_of_chunks = server_data.num;
+    double bw;
+    
     MPI_Status status;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     printf("Server started\n");
+    gettimeofday(&tv_start,NULL);
     // main server loop
     while(1) {
         MPI_Recv(&data_in, 1, MPI_INT, MPI_ANY_SOURCE, M_TAG_CLIENT, *server_data.thread_comm, &status);
         if (data_in == M_IFNEWCHUNK) {
-            printf("Got req for new chunk from %d\n", status.MPI_SOURCE);
-            if (server_data.num > 0) {
-                server_data.num -= 1;
+            // printf("Got req for new chunk from %d\n", status.MPI_SOURCE);
+            if (num_of_chunks > 0) {
+                num_of_chunks -= 1;
             }  else {
-                num_of_chunks = 0;
+                chunks_per_time = 0;
             }
-            MPI_Send(&num_of_chunks, 1, MPI_INT, status.MPI_SOURCE, M_TAG_SERVER, *server_data.thread_comm );
-            printf("Chunks left %d\n", server_data.num);
+            MPI_Send(&chunks_per_time, 1, MPI_INT, status.MPI_SOURCE, M_TAG_SERVER, *server_data.thread_comm );
+            printf("Chunks left\t%d\n", num_of_chunks);
         } 
         if (data_in == M_BYE) {
             printf("Process on rank %d said 'bye'\n", status.MPI_SOURCE);
@@ -175,13 +183,21 @@ void *server_thread(void *ptr) {
             break;
         }
     }
+    gettimeofday(&tv_finish,NULL);
+    time_sec = tv_finish.tv_sec - tv_start.tv_sec;
+    if (time_sec != 0) {
+        bw = (double) (((server_data.csize/1048576)*server_data.num)/time_sec);
+        printf("BW:\t%.2f MB/sec\n", bw);
+    } else {
+        printf("BW:\tInf MB/sec\n");
+    }
     pthread_exit(0);
 }
 
 int client_thread(void *ptr) {
     int data_in, data_out;
     struct client_data_t client_data = *(struct client_data_t *)ptr;
-    struct timeval tv;
+    // struct timeval tv;
     int percent_done = 0; 
     int chunks_lim = 0;
     int need_to_ask = 0;
