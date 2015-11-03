@@ -3,45 +3,48 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#include <sys/types.h>                                                                                                                                                                         
+#include <sys/stat.h>                                                                                                                                                                          
+#include <fcntl.h>                                                                                                                                                                             
 #include <mpi.h>
 #include <limits.h>
 #include <aio.h>
 #include <stdbool.h>
 
-#define DMODE 0777
-#define PERCENT_LIM 95
-#define M_IFNEWCHUNK 1
-#define M_BYE 2
-#define M_TAG_SERVER 0
-#define M_TAG_CLIENT 1
-#define OUTS_REQ 4
-#define BUFSIZE 1048576
-#define MAXBYTES 1073741824
-#define CHUNKSIZE 107374182400
+#define M_IFNEWCHUNK    1               // message type 'ask for new chunk'
+#define M_BYE           2               // message type 'bye'
+#define M_TAG_SERVER    0               // tag message of the server
+#define M_TAG_CLIENT    1               // tag message of the client
+#define OUTS_REQ        4               // default number of outstanding requests
+#define BLOCKSIZE       1048576         // default block size
+#define MAXBYTES        1073741824      // default task size
+#define CHUNKSIZE       104857600       // default chink size
+#define PERCENT_LIM     90              // as we reacheed this % of current chunk done 
+                                        //    ask fro another chunk
 
 
 struct server_data_t {
     MPI_Comm *thread_comm;
-    off_t    csize;             //chunk size
-    off_t      num;               //number of chunks
-    int      numranks;
+    off_t    csize;             // chunk size
+    off_t      num;             // number of chunks
+    int      numranks;          // how mny ranks do we have
 };
+
 struct client_data_t {
     MPI_Comm  *thread_comm;
-    off_t      bsize;             //block size
-    off_t      csize;             //chunk size
-    int        rank;
-    int        maxreqs;
-    char       fname[1024];
+    off_t      bsize;           // block size
+    off_t      csize;           // chunk size
+    int        rank;            // runk of the client
+    int        maxreqs;         // max outstanding requests
+    char       fname[1024];     // file name
 
 };
+
 void *server_thread(void *ptr);
 int client_thread(void *ptr);
 off_t units_convert(char istr[]);
 void print_help(int rank);
+
 int main(int argc,char *argv[]) {
     char pathtobin[1024], testfile[1024];
     struct server_data_t server_data;
@@ -60,9 +63,10 @@ int main(int argc,char *argv[]) {
     //default parameters
     strcpy(testfile, "testmpiio");
     client_data.maxreqs = OUTS_REQ;
-    client_data.bsize = BUFSIZE;
+    client_data.bsize = BLOCKSIZE;
     client_data.csize = CHUNKSIZE;
     maxbytes = MAXBYTES;
+    // reading input parameters
     while ((parm = getopt (argc, argv, "b:r:f:c:s:h")) != -1) {
         switch (parm) {
             case 'b':
@@ -90,6 +94,7 @@ int main(int argc,char *argv[]) {
                 exit(0);
         }
     }
+    // check for correct data
     if ((client_data.bsize == 0) || (client_data.maxreqs == 0) || \
         (client_data.fname == "") || (client_data.csize == 0) || (maxbytes == 0) ) {
             print_help(rank);
@@ -97,27 +102,47 @@ int main(int argc,char *argv[]) {
             exit(0);
 
     }
+    if (client_data.bsize > client_data.csize) {
+        if (rank == 0) {
+            printf("Requested blocksize larger that chunk size. Exiting.\n");
+        }
+        MPI_Finalize();
+        exit(0);
+    }
     server_data.num = (off_t)maxbytes/client_data.csize;
+    if (client_data.csize > client_data.csize*server_data.num) {
+        if (rank == 0) {
+            printf("Requested chunk size larger that requested bytes to write. Exiting.\n");
+        }
+        MPI_Finalize();
+        exit(0);
+    }
+    // print what we are going to do
     snprintf(client_data.fname, sizeof client_data.fname, "%s.%05d", testfile ,rank);
-    printf("Rank %05d | Blocksize: %d\n", rank, client_data.bsize);
-    printf("Rank %05d | Max outstanding requests: %d\n", rank, client_data.maxreqs);
-    printf("Rank %05d | File name: %s\n", rank, client_data.fname);
-    printf("Rank %05d | Chunk size %lli\n", rank, client_data.csize);
-    printf("Rank %05d | Requested bytes to write: %lli\n", rank, maxbytes);
-    printf("Rank %05d | Bytes to write: %lli\n", rank, client_data.csize*server_data.num);
-
+    if (rank == 0) {
+        printf("Rank %05d | Blocksize: %d\n", rank, client_data.bsize);
+        printf("Rank %05d | Max outstanding requests: %d\n", rank, client_data.maxreqs);
+        printf("Rank %05d | File name: %s\n", rank, client_data.fname);
+        printf("Rank %05d | Chunk size %lli\n", rank, client_data.csize);
+        printf("Rank %05d | Number of chunks %lli\n", rank, server_data.num);
+        printf("Rank %05d | Requested bytes to write: %lli\n", rank, maxbytes);
+        printf("Rank %05d | Bytes to write: %lli\n", rank, client_data.csize*server_data.num);
+    }
+    // how many ranks do we have?
     client_data.rank = rank; 
     MPI_Comm_size(MPI_COMM_WORLD,&numranks);
     server_data.numranks = numranks;
+    // run manager process if rank==0
     if (rank == 0) {
         pthread_create(&thread, NULL, server_thread, &server_data);
     } 
+    // run client on all ranks
     client_thread(&client_data);
     if (rank == 0 ) {
         pthread_join(thread, &thr_exit_status);
     }
+    // exiting
     MPI_Barrier( MPI_COMM_WORLD );
-    printf("Rank %05d | exit\n",rank);
     MPI_Finalize();
     exit(0);
 }
@@ -128,29 +153,28 @@ void *server_thread(void *ptr) {
     int rank;
     MPI_Status status;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    printf("Rank %05d | server start", rank);
+    printf("Server started\n");
+    // main server loop
     while(1) {
         MPI_Recv(&data_in, 1, MPI_INT, MPI_ANY_SOURCE, M_TAG_CLIENT, *server_data.thread_comm, &status);
-        printf("Rank %05d | server: receive %d from %d\n", rank, data_in, status.MPI_SOURCE);
         if (data_in == M_IFNEWCHUNK) {
-
-            MPI_Send(&num_of_chunks, 1, MPI_INT, status.MPI_SOURCE, M_TAG_SERVER, *server_data.thread_comm );
-            printf("Rank %05d | server: sent %d to %d\n", rank, num_of_chunks, status.MPI_SOURCE);
-            if (server_data.num > 1) {
+            printf("Got req for new chunk from %d\n", status.MPI_SOURCE);
+            if (server_data.num > 0) {
                 server_data.num -= 1;
-            } else {
+            }  else {
                 num_of_chunks = 0;
             }
+            MPI_Send(&num_of_chunks, 1, MPI_INT, status.MPI_SOURCE, M_TAG_SERVER, *server_data.thread_comm );
+            printf("Chunks left %d\n", server_data.num);
         } 
         if (data_in == M_BYE) {
+            printf("Process on rank %d said 'bye'\n", status.MPI_SOURCE);
             server_data.numranks -= 1;
-            printf("Rank %05d | server: new numranks %d\n", rank, server_data.numranks);
         }
         if (server_data.numranks <= 0) {
             break;
         }
     }
-    printf("Rank %05d | server: done!\n", rank);
     pthread_exit(0);
 }
 
@@ -158,12 +182,15 @@ int client_thread(void *ptr) {
     int data_in, data_out;
     struct client_data_t client_data = *(struct client_data_t *)ptr;
     struct timeval tv;
-    int percent_done = 0; // percentage of current chunk wroten
+    int percent_done = 0; 
     int chunks_lim = 0;
     int need_to_ask = 0;
     int last_chunk = 0;
+    int req_was_issued = 0;
     int req_was_sent = 0;
     int isend_in_fly = 1;
+    int wait_for_answer = 0;
+    int got_answer = 0;
     off_t data_writen = 0;
     int chunks_writen = 0;
     int fd, ret, i;
@@ -172,11 +199,6 @@ int client_thread(void *ptr) {
     MPI_Status status;
     MPI_Request request;
 
-    printf("Rank %05d | client start\n",client_data.rank);
-//    gettimeofday(&tv,NULL);
-    printf("Rank %05d | client_data.bsize %d\n", client_data.rank, client_data.bsize);
-//    unsigned long time_in_micros = 1000000 * tv.tv_sec + tv.tv_usec;
-    srand(time_in_micros);
     data_out = M_IFNEWCHUNK;
     fd = open( client_data.fname, O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
     if (fd < 0) {
@@ -187,7 +209,6 @@ int client_thread(void *ptr) {
         bzero( (char *)&my_aiocb[i], sizeof(struct aiocb) );
 
         // Allocate a data buffer for the aiocb request
-        printf("Rank %05d | client_data.maxreqs %d\n", client_data.rank, client_data.maxreqs);
         my_aiocb[i].aio_buf = calloc(client_data.bsize+1, 1);
         if (!my_aiocb[i].aio_buf) {
             printf("Rank %05d | Error calloc()[%d]: %s\n", client_data.rank, strerror(errno), i);
@@ -199,74 +220,108 @@ int client_thread(void *ptr) {
         my_aiocb[i].aio_nbytes = client_data.bsize;
         infly[i] = 0;
     }
+    
+    data_in = -1;
     while(1) {
-        if ((percent_done > PERCENT_LIM) && (last_chunk == 0)) {
+        /*if (client_data.rank == 0) {
+            printf("%05d | Percent done %d %d %d %lli\n", client_data.rank, percent_done, chunks_lim, client_data.csize, data_writen);
+        } */ 
+        // what hve be done so far?
+        percent_done = (int) ((100*(data_writen - client_data.csize*(chunks_lim-1)))/client_data.csize);
+        // triggers only on the beginning. Ugly.
+        if ((data_writen == 0) && (chunks_lim == 0) && (req_was_issued == 0)) {
+            percent_done = 100;
+        }
+        // we are close to idle. need to ask for another portion of the data
+        if ((percent_done > PERCENT_LIM) && (last_chunk == 0) && (req_was_sent == 0) ) {
             need_to_ask = 1;
+            got_answer = 0;
         }
-        if ( need_to_ask == 1 ) {
+        // sending requests
+        if ( (need_to_ask == 1) && (req_was_issued == 0 ) && (req_was_sent == 0)) {
             MPI_Isend(&data_out, 1, MPI_INT, 0, M_TAG_CLIENT, *client_data.thread_comm, &request);
-            printf("Rank %05d | asked server for chunk\n",client_data.rank);
-            need_to_ask = 0;
-            req_was_sent = 1;
+            // printf("%05d | Asked for a new chunk\n", client_data.rank);
+            req_was_issued = 1;
         }
-        if (req_was_sent == 1) {
+        // checking if send is finished
+        if (req_was_issued == 1) {
             MPI_Test(&request, &isend_in_fly, &status);
-            if (isend_in_fly !=0 ) {
-                MPI_Recv(&data_in, 1, MPI_INT, MPI_ANY_SOURCE, M_TAG_SERVER, *client_data.thread_comm, &status);
-                printf("Rank %05d | got data_in %d\n",client_data.rank, data_in);
-                if (data_in == -1) {
-                    break;
-                }
-                if (data_in > 0) {
-                    chunks_lim += data_in;
-                } else {
-                    last_chunk = 1;
-                }
-                printf("Rank %05d | new chunks_lim %d\n",client_data.rank, chunks_lim);
-                req_was_sent = 0;
+            if (isend_in_fly != 0 ) {
+                            // printf("%05d req_was_issued \n",client_data.rank);
+                req_was_sent = 1;
+                req_was_issued = 0;
             }
         }
+        // if send request gone, run async receive
+        if ((req_was_sent == 1) && (wait_for_answer == 0)) {
+            MPI_Irecv(&data_in, 1, MPI_INT, 0, M_TAG_SERVER, *client_data.thread_comm, &request);
+                    // printf("%05d wait_for_answer \n",client_data.rank);
+            wait_for_answer = 1;
+        }
+        // check the satatus of the irecv
+        if (wait_for_answer == 1) {
+            MPI_Test(&request, &isend_in_fly, &status);
+            if (isend_in_fly != 0 ) {
+                        // printf("%05d got_answer \n",client_data.rank);
+                wait_for_answer = 0;
+                got_answer = 1;
+            }
+        }
+        // finaly got an answer
+        if (got_answer == 1) {
+                    // printf("%05d got_answer %d \n",client_data.rank, data_in);
+                        if (data_in == -1) {
+                            break;
+                        }
+                        if (data_in > 0) {
+                            chunks_lim += data_in;
+                        } else {
+                            last_chunk = 1;
+                        // printf("%05d last_chunk \n",client_data.rank);
+                        }
+            req_was_sent = 0;
+            need_to_ask = 0;
+            got_answer = 0;
+        }
+        // check if we done what needed
+        if ((last_chunk == 1) && (data_writen >= chunks_lim * client_data.csize )) {
+            break;
+        }
+        // we are here? that is bad. Probably needs  to decrease PERCENT_LIM
+        if (percent_done >= 100) {
+            continue;
+        }
+        // writing data to file
         for (i=0; i < client_data.maxreqs; i++) {
             if ( aio_error( &my_aiocb[i] ) == EINPROGRESS ) {
                 continue;
 
             } 
             if ((ret = aio_return( &my_aiocb[i] )) < 0) {
-                printf("Rank %05d | Error aio_return(): %d: %s\n", client_data.rank, ret, strerror(errno) );
                 exit(ret);
             } 
             my_aiocb[i].aio_offset = data_writen;
             if ((ret = aio_write( &my_aiocb[i] )) < 0) {
-                printf("Rank %05d | Error aio_write()[%d]: %s\n", client_data.rank, strerror(errno), i);
                 exit(errno);
             }
 
             data_writen += client_data.bsize;
         }
  
-        printf("Rank %05d | data_writen %d\n",client_data.rank, data_writen);
-        if ((last_chunk == 1) && (data_writen >= chunks_lim * client_data.csize )) {
-            break;
-        }
-        percent_done = (int) data_writen % client_data.csize;
-        printf("Rank %05d | percent_done %d\n", client_data.rank, percent_done);
-        if ((data_writen == 0) && (chunks_lim == 0)) {
-            percent_done = 100;
-            continue;
-        }
     }
+    // waiting for the last bytes are in fly
     for  (i=0; i < client_data.maxreqs; i++) {
         while (aio_error( &my_aiocb[i] ) == EINPROGRESS) 
         if ((ret = aio_return( &my_aiocb[i] )) < 0) {
-            printf("Rank %05d | Error aio_return(): %d: %s\n", client_data.rank, ret, strerror(errno) );
             exit(ret);
         }
     }
+    // send 'bye' to manager thread.
     data_out = M_BYE;
     MPI_Send(&data_out, 1, MPI_INT, status.MPI_SOURCE, M_TAG_CLIENT, *client_data.thread_comm );
-    printf("Rank %05d | sent master 'bye!'\n", client_data.rank);
     return 0;
 }
+// converting input unis from 1k to 1000 and 1K to 1024
 off_t units_convert(char istr[]) {
     off_t multiplier, num_part;
     int base=10;
@@ -311,6 +366,7 @@ off_t units_convert(char istr[]) {
     }
     return num_part*multiplier;
 }
+// print help for process rank==1
 void print_help(int rank) {
     if (rank == 0) {
         printf("Options:\n");    
