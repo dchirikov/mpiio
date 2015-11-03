@@ -20,23 +20,23 @@
 #define MAXBYTES        1073741824      // default task size
 #define CHUNKSIZE       104857600       // default chink size
 #define PERCENT_LIM     90              // as we reacheed this % of current chunk done 
-                                        //    ask fro another chunk
+                                        //    ask for another chunk
 
 
 struct server_data_t {
-    MPI_Comm *thread_comm;
-    off_t    csize;             // chunk size
-    off_t      num;             // number of chunks
-    int      numranks;          // how mny ranks do we have
+    MPI_Comm    *thread_comm;
+    off_t       csize;              // chunk size
+    off_t       num;                // number of chunks
+    int         numranks;           // how mny ranks do we have
 };
 
 struct client_data_t {
-    MPI_Comm  *thread_comm;
-    off_t      bsize;           // block size
-    off_t      csize;           // chunk size
-    int        rank;            // runk of the client
-    int        maxreqs;         // max outstanding requests
-    char       fname[1024];     // file name
+    MPI_Comm    *thread_comm;
+    off_t       bsize;              // block size
+    off_t       csize;              // chunk size
+    int         rank;               // runk of the client
+    int         maxreqs;            // max outstanding requests
+    char        fname[1024];        // file name
 
 };
 
@@ -240,7 +240,8 @@ int client_thread(void *ptr) {
     data_in = -1;
     while(1) {
         /*if (client_data.rank == 0) {
-            printf("%05d | Percent done %d %d %d %lli\n", client_data.rank, percent_done, chunks_lim, client_data.csize, data_writen);
+            printf("%05d | Percent done %d %d %d %lli\n", client_data.rank, \
+                percent_done, chunks_lim, client_data.csize, data_writen);
         } */ 
         // what hve be done so far?
         percent_done = (int) ((100*(data_writen - client_data.csize*(chunks_lim-1)))/client_data.csize);
