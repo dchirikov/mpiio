@@ -253,6 +253,7 @@ int client_thread(void *ptr) {
         if ((percent_done > PERCENT_LIM) && (last_chunk == 0) && (req_was_sent == 0) ) {
             need_to_ask = 1;
             got_answer = 0;
+            data_in = 0;
         }
         // sending requests
         if ( (need_to_ask == 1) && (req_was_issued == 0 ) && (req_was_sent == 0)) {
@@ -287,25 +288,26 @@ int client_thread(void *ptr) {
         // finaly got an answer
         if (got_answer == 1) {
                     // printf("%05d got_answer %d \n",client_data.rank, data_in);
-                        if (data_in == -1) {
-                            break;
-                        }
-                        if (data_in > 0) {
-                            chunks_lim += data_in;
-                        } else {
-                            last_chunk = 1;
-                        // printf("%05d last_chunk \n",client_data.rank);
-                        }
+            if (data_in == -1) {
+                break;
+            }
+            if (data_in > 0) {
+                chunks_lim += data_in;
+            } else {
+                last_chunk = 1;
+            // printf("%05d last_chunk \n",client_data.rank);
+            }
             req_was_sent = 0;
             need_to_ask = 0;
             got_answer = 0;
         }
-        // check if we done what needed
-        if ((last_chunk == 1) && (data_writen >= chunks_lim * client_data.csize )) {
-            break;
-        }
-        // we are here? that is bad. Probably needs  to decrease PERCENT_LIM
-        if (percent_done >= 100) {
+        // we are here and not the last chunk? that is bad. Probably needs  to decrease PERCENT_LIM
+        if (data_writen >= chunks_lim * client_data.csize) {
+            // check if we done what needed
+            if (last_chunk == 1) {
+                break;
+            }
+    	//	printf("Rank %05d | OOPS. Wrote %d chunks, %lli \n",client_data.rank,chunks_lim,data_writen);
             continue;
         }
         // writing data to file
@@ -317,6 +319,9 @@ int client_thread(void *ptr) {
             if ((ret = aio_return( &my_aiocb[i] )) < 0) {
                 exit(ret);
             } 
+            if (data_writen >= chunks_lim * client_data.csize) {
+                break;
+            }
             my_aiocb[i].aio_offset = data_writen;
             if ((ret = aio_write( &my_aiocb[i] )) < 0) {
                 exit(errno);
@@ -336,6 +341,7 @@ int client_thread(void *ptr) {
     // send 'bye' to manager thread.
     data_out = M_BYE;
     MPI_Send(&data_out, 1, MPI_INT, status.MPI_SOURCE, M_TAG_CLIENT, *client_data.thread_comm );
+    printf("Rank %05d | Wrote %d chunks, %lli \n",client_data.rank,chunks_lim,data_writen);
     return 0;
 }
 // converting input unis from 1k to 1000 and 1K to 1024
