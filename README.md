@@ -15,19 +15,23 @@ Here the whole amount of the data is split onto equal small pieces (chunks), and
 All pictures were captured from IEEL web-interface (Enterprise Lustre FS by Intel).
 
 ### FIO test from 50 nodes:
+Here 2 slow processes are 1.5 slower that the fastest ones, and the test lasts 1.5 longer than it could be.
 ![fio heatmap](img/fio1.png)
 ![fio write](img/fio2.png)
+Resulting speed was about 17 GB/sec
 
 ### MPIio from 50 nodes:
+Slowest processes are not limiting the duration of the test.
 ![mpiio heatmap](img/mpiio1.png)
 ![mpiio write](img/mpiio2.png)
+Resulting speed was 24 GB/sec
 
 ## Compilation
 As MPI is using to track the chunks, so some flavour of MPI is required. Tested on OpenMPI only. 
 ```
 mpicc -lrt mpiio.c
 ```
-```-lrt```  - for 
+```-lrt```  - for posix AIO.
 
 ## CLI options
 ```
