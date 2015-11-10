@@ -11,6 +11,8 @@ As a result fastest process will write its 1TB and go to idle and benchmark will
 The other approach is a operate like a team: "do work for your lazy colleagues".
 Here the whole amount of the data is split onto equal small pieces (chunks), and a single dedicated process is tracking how many of those pieces are fallen down to the filesystem. As a result, steady speed of I/O is all along the benchmark.
 
+More detailed explanation can be found [here](explanation.md).
+
 ## Some pictures
 All pictures were captured from IEEL web-interface (Enterprise Lustre FS by Intel).
 
